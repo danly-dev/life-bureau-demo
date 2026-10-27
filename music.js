@@ -3,7 +3,7 @@
   const key='life-bureau-v08-music';
   let enabled=true,scene='opening',unlocked=false,timer;
   try{enabled=localStorage.getItem(key)!=='off';}catch{}
-  const tracks={game:new Audio('assets/music/dream-culture.mp3'),menu:new Audio('assets/music/local-forecast-elevator.mp3')};
+  const tracks={game:new Audio('assets/music/dream-culture-matched.mp3'),menu:new Audio('assets/music/local-forecast-elevator-matched.mp3')};
   Object.values(tracks).forEach(a=>{a.loop=true;a.volume=0;a.preload='none';});
   function sync(){
     clearInterval(timer);
@@ -12,8 +12,8 @@
     timer=setInterval(()=>{
       let moving=false;
       for(const a of Object.values(tracks)){
-        const goal=a===target?(a===tracks.game?0.32:0.24):0;
-        a.volume=Math.max(0,Math.min(1,a.volume+Math.sign(goal-a.volume)*Math.min(0.008,Math.abs(goal-a.volume))));
+        const goal=a===target?1:0;
+        a.volume=Math.max(0,Math.min(1,a.volume+Math.sign(goal-a.volume)*Math.min(0.04,Math.abs(goal-a.volume))));
         if(Math.abs(a.volume-goal)>0.00001)moving=true;
         if(a!==target&&a.volume===0)a.pause();
       }

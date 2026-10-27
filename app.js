@@ -76,15 +76,15 @@
     finally{URL.revokeObjectURL(url);if(token===screenToken)uploadBusy=false;}
   });
   let introPart=0,introWaiting=false;
-  const introEnds=[146/24,292/24];
+
   const introLines=['开启对话','欢迎来到人生委托局。这里收着一些还没有完成的心愿。','你会进入他们的人生，替他们把没能走完的那一段，继续走下去。'];
   function holdIntro(){
     if(introWaiting)return;
     introWaiting=true;
     const heldVideo=$('#intro-video');
     heldVideo.pause();
-    // Seek to the final decoded frame of this scene, never its next scene's first frame.
-    if(introPart<2)heldVideo.currentTime=introEnds[introPart]-0.5/24;
+    $('#cg-hold').src=`assets/cg/scene-${String(introPart+1).padStart(2,'0')}-end.jpg`;
+    $('#cg-hold').hidden=false;
     $('.cg-dialogue').hidden=introPart===0;
     $('#cg-open-dialogue').hidden=introPart!==0;
     $('.cg-speaker').hidden=introPart===0;
@@ -98,27 +98,25 @@
   function nextIntro(){
     if(!introWaiting)return;
     if(introPart===2){endIntro();return;}
-    const nextSceneStart=introEnds[introPart];
+
     introPart++;introWaiting=false;
     $('#cg-open-dialogue').hidden=true;
     $('.cg-dialogue').hidden=false;
     $('#cg-next').hidden=true;$('#cg-pause').hidden=false;
     $('#cg-line').textContent=introLines[introPart];
     $('.cg-speaker').hidden=false;
-    $('#intro-video').currentTime=nextSceneStart;
+    const video=$('#intro-video');
+    video.src=`assets/cg/scene-${String(introPart+1).padStart(2,'0')}.mp4`;video.load();
     playIntro();
   }
   function onboarding(){
     introPart=0;introWaiting=false;
     const token=screenToken;
-    app.innerHTML=`<div class="cg-backdrop"></div><video id="intro-video" class="intro-video" src="assets/cg/first-commission.mp4" poster="assets/cg/intro-poster.jpg" playsinline webkit-playsinline preload="auto" aria-label="第一份委托：入局、奶奶迎接与递交档案"></video><div class="cg-brand">${image('logo','','人生委托局')}</div><div class="cg-toolbar"><button data-action="intro-video-sound" id="cg-sound">关闭声音</button><button data-action="intro-video-pause" id="cg-pause">暂停</button><button data-action="intro-skip">跳过</button></div><button class="cg-play" data-action="intro-video-play" id="cg-play" hidden>播放开场 CG</button><section class="cg-dialogue" aria-label="奶奶的对话" hidden><div class="cg-speaker">${portrait('grandma')}<strong>接待奶奶</strong></div><p id="cg-line" aria-live="polite">欢迎来到人生委托局。</p><button class="cg-dialogue-note" id="cg-next" data-action="intro-next" hidden>点击继续 ▸</button></section><div class="cg-open-dialogue" id="cg-open-dialogue" hidden>${primary('intro-next','开启对话')}</div><p class="cg-status" id="cg-status" role="status">正在准备影片…</p><div class="cg-ending intro-end" hidden><p>第一份委托已送达</p>${primary('intro-start','开始我的第一份委托')}<button class="text-link" data-action="intro-video-replay">重播 CG</button></div>`;
+    app.innerHTML=`<div class="cg-backdrop"></div><video id="intro-video" class="intro-video" src="assets/cg/scene-01.mp4" poster="assets/cg/intro-poster.jpg" playsinline webkit-playsinline preload="auto" aria-label="第一份委托：入局、奶奶迎接与递交档案"></video><img id="cg-hold" class="cg-hold" alt="上一段的最后一帧" hidden><div class="cg-brand">${image('logo','','人生委托局')}</div><div class="cg-toolbar"><button data-action="intro-video-sound" id="cg-sound">关闭声音</button><button data-action="intro-video-pause" id="cg-pause">暂停</button><button data-action="intro-skip">跳过</button></div><button class="cg-play" data-action="intro-video-play" id="cg-play" hidden>播放开场 CG</button><section class="cg-dialogue" aria-label="奶奶的对话" hidden><div class="cg-speaker">${portrait('grandma')}<strong>接待奶奶</strong></div><p id="cg-line" aria-live="polite">欢迎来到人生委托局。</p><button class="cg-dialogue-note" id="cg-next" data-action="intro-next" hidden>点击继续 ▸</button></section><div class="cg-open-dialogue" id="cg-open-dialogue" hidden>${primary('intro-next','开启对话')}</div><p class="cg-status" id="cg-status" role="status">正在准备影片…</p><div class="cg-ending intro-end" hidden><p>第一份委托已送达</p>${primary('intro-start','开始我的第一份委托')}<button class="text-link" data-action="intro-video-replay">重播 CG</button></div>`;
     const video=$('#intro-video');video.muted=false;
     $('.cg-dialogue').hidden=true;
-    const stopAtDialogue=()=>{if(token===screenToken&&!introWaiting&&introPart<2&&video.currentTime>=introEnds[introPart]-1/24)holdIntro();};
-    video.addEventListener('timeupdate',stopAtDialogue);video.addEventListener('seeked',stopAtDialogue);
-    if(video.requestVideoFrameCallback){const watch=()=>{if(token!==screenToken)return;stopAtDialogue();video.requestVideoFrameCallback(watch);};video.requestVideoFrameCallback(watch);}
     video.addEventListener('ended',()=>{if(token===screenToken)holdIntro();});
-    video.addEventListener('playing',()=>{if(token!==screenToken)return;$('#cg-play').hidden=true;$('#cg-status').textContent='';$('#cg-pause').textContent='暂停';});
+    video.addEventListener('playing',()=>{if(token!==screenToken)return;$('#cg-hold').hidden=true;$('#cg-play').hidden=true;$('#cg-status').textContent='';$('#cg-pause').textContent='暂停';});
     video.addEventListener('waiting',()=>{if(token===screenToken)$('#cg-status').textContent='影片加载中…';});
     video.addEventListener('error',()=>{if(token!==screenToken)return;endIntro();$('#cg-status').textContent='影片暂时无法播放，你仍可接取委托。';});
     playIntro();
@@ -191,7 +189,7 @@
   function target(name,count,label){return `<span class="target" aria-label="${label}剩余${count}">${name==='box'?'<span class="box-art"></span>':image(name)}<b>${count===0?icon('check'):count}</b></span>`;}
   function game(){
     const r=board.remaining();
-    app.innerHTML=`<div class="studio-art"></div><header class="game-header"><div><span class="eyebrow">旧照相馆 · 第${board.level+1}关</span><h1>${board.config.name}</h1></div><button class="icon-button" data-action="pause" aria-label="暂停">${icon('pause')}</button></header><div class="goal-strip"><div id="goals">${target(board.config.photo?'back':'paper',r.cover,board.config.photo?'照片遮挡':'旧纸')}${!board.config.photo?target('box',r.boxes,'箱子'):''}</div><div class="moves" aria-label="剩余步数"><small>剩余步数</small><strong id="moves">${board.moves}</strong></div></div><div class="score-strip">本局积分 <b id="score">${board.score}</b><span>通关后结算金币</span></div><div class="board-frame"><div id="board" class="${board.config.photo?'photo-board':''}" role="group" aria-label="七行七列三消棋盘"></div></div><p id="game-feedback" class="game-feedback" aria-live="polite">交换相邻棋子，连成三枚</p><div class="developer-bar"><button data-action="develop" id="develop"><span>显影液</span><span class="developer-meter"><i id="developer-fill"></i></span><b id="developer-count"></b></button><small id="developer-tip"></small></div><footer class="game-tools"><button data-action="brush" id="brush">${image('brush')}<span>修复刷 <b id="brush-count">${board.brushes}</b></span></button><button data-action="hint">${image('hint')}<span>提示</span></button><button data-action="rules">${icon('book')}<span>玩法</span></button></footer>`;
+    app.innerHTML=`<div class="studio-art"></div><header class="game-header"><div><span class="eyebrow">旧照相馆 · 第${board.level+1}关</span><h1>${board.config.name}</h1></div><button class="icon-button" data-action="pause" aria-label="暂停">${icon('pause')}</button></header><div class="goal-strip"><div id="goals">${target(board.config.photo?'back':'paper',r.cover,board.config.photo?'照片遮挡':'旧纸')}${!board.config.photo?target('box',r.boxes,'箱子'):''}</div><div class="moves" aria-label="剩余步数"><small>剩余步数</small><strong id="moves">${board.moves}</strong></div></div><div class="score-strip">本局积分 <b id="score">${board.score}</b><span>通关后结算金币</span></div><div class="board-frame"><div id="board" class="${board.config.photo?'photo-board':''}" role="group" aria-label="七行七列三消棋盘"></div></div><p id="game-feedback" class="game-feedback" aria-live="polite">交换相邻棋子，连成三枚</p><div class="developer-bar"><button data-action="develop" id="develop"><span class="developer-vial" aria-hidden="true"><svg viewBox="0 0 48 56"><path d="M18 5h12v7H18z" fill="#d4b477"/><path d="M19 12v10L10 34v12q0 5 5 5h18q5 0 5-5V34L29 22V12Z" fill="#173e43" stroke="#e0c48c" stroke-width="2"/><path d="M13 35q7-5 14 0t8 0v11q0 2-3 2H16q-3 0-3-2Z" fill="#75dbc6"/><path d="M18 38v5" stroke="#e1fff4" stroke-width="2" stroke-linecap="round"/><path d="m25 26 1.5 3 3 1.5-3 1.5-1.5 3-1.5-3-3-1.5 3-1.5Z" fill="#ffe4a0"/></svg></span><span>显影液</span><span class="developer-meter"><i id="developer-fill"></i></span></button><small id="developer-tip"></small></div><footer class="game-tools"><button data-action="brush" id="brush">${image('brush')}<span>修复刷 <b id="brush-count">${board.brushes}</b></span></button><button data-action="hint">${image('hint')}<span>提示</span></button><button data-action="rules">${icon('book')}<span>玩法</span></button></footer>`;
     drawBoard();stats();
   }
   const TILES=['film','photo','clip','camera','stamp'],NAMES=['黄色胶卷','蓝色相片','红色照片夹','青色相机','紫色印章'];
@@ -221,7 +219,7 @@
     const r=board.remaining();$('#goals').innerHTML=target(board.config.photo?'back':'paper',r.cover,board.config.photo?'照片遮挡':'旧纸')+(!board.config.photo?target('box',r.boxes,'箱子'):'');
     if($('#score'))$('#score').textContent=board.score;
     $('#moves').textContent=board.moves;$('#moves').classList.toggle('low',board.moves<=5);
-    $('#developer-fill').style.width=`${board.developer/6*100}%`;$('#developer-count').textContent=board.level?`${board.developer}/6`:'第2关解锁';$('#develop').disabled=board.level<1||busy;$('#develop').classList.toggle('selected',developMode);$('#developer-tip').textContent=developMode?'点选3×3范围 · 再点按钮取消':board.developer===6?'已蓄满 · 选择何时显影':'有效交换+2 · 连锁最多额外+2';
+    $('#developer-fill').style.width=`${board.developer/6*100}%`;$('#develop').disabled=board.level<1||busy;$('#develop').classList.toggle('selected',developMode);$('#develop').classList.toggle('charged',board.level>0&&board.developer===6);$('#develop').setAttribute('aria-label',board.level<1?'显影液，第2关解锁':board.developer===6?'显影液已蓄满，点击使用':'显影液正在积累');$('#developer-tip').textContent=developMode?'点选3×3范围 · 再点按钮取消':board.level<1?'第2关解锁':board.developer===6?'已蓄满 · 点击显影':'交换和连锁可积累显影液';
     $('#brush-count').textContent=board.brushes;$('#brush').classList.toggle('selected',brushMode);
     $('#board').setAttribute('aria-busy',String(busy));
   }
