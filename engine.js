@@ -25,8 +25,8 @@
       this.level=level;this.config=LEVELS[level];this.seed=this.config.seed;
       this.cells=Array(SIZE).fill(null);this.cover=Array(SIZE).fill(0);
       this.moves=this.config.moves;this.brushes=brushes;this.startBrushes=brushes;
-      this.turns=0;this.chain=0;this.madeLine=false;this.usedLine=false;
-      if(saved){Object.assign(this,JSON.parse(JSON.stringify(saved)));this.config=LEVELS[level];return;}
+      this.developer=level===1?6:0;this.observations=[];this.score=0;this.turns=0;this.chain=0;this.madeLine=false;this.usedLine=false;
+      if(saved){Object.assign(this,JSON.parse(JSON.stringify(saved)));this.config=LEVELS[level];this.developer=Math.max(0,Math.min(6,Number(this.developer)||0));this.observations=Array.isArray(this.observations)?this.observations:[];this.score=Number.isSafeInteger(this.score)&&this.score>=0?this.score:0;return;}
       this.config.paper.forEach(([r,c])=>this.cover[(r-1)*N+c-1]=1);
       this.config.boxes.forEach(([r,c])=>this.cells[(r-1)*N+c-1]={kind:'box',hp:1});
       this.fillClean();
@@ -152,6 +152,7 @@
         if(this.isTile(i))this.neighbors(i).forEach(j=>{if(this.cells[j]?.kind==='box')boxes.add(j);});
       }
       boxes.forEach(i=>{this.cells[i].hp--;});
+      this.score += [...hit].filter(i=>this.isTile(i)).length*10+clearedCover.length*30+[...boxes].filter(i=>this.cells[i].hp<=0).length*30;
       await notify({type:'clear',ids:[...hit],boxes:[...boxes],effects,clearedCover,creates:creates.filter(x=>created.has(x.i))});
       hit.forEach(i=>{if(this.isTile(i))this.cells[i]=null;});
       boxes.forEach(i=>{if(this.cells[i]?.hp<=0)this.cells[i]=null;});
@@ -219,17 +220,41 @@
           await this.hit([at],notify);
         }
       }
-      await this.settle(notify,combo?null:b,combo?null:a);return true;
+      await this.settle(notify,combo?null:b,combo?null:a);if(this.level>=1)this.developer=Math.min(6,this.developer+2+Math.min(2,Math.max(0,this.chain-1)));return true;
     }
     async brush(i,notify=async()=>{}){
       if(i<0||i>=SIZE||!this.cells[i]||this.brushes<=0||this.won()||this.moves<=0)return false;
       this.brushes--;this.chain=0;
-      if(this.cover[i]){this.cover[i]--;await notify({type:'brush',ids:[i]});}
+      if(this.cover[i]){this.cover[i]--;this.score+=30;await notify({type:'brush',ids:[i]});}
       else if(this.cells[i].kind==='box'){
-        this.cells[i].hp--;await notify({type:'brush',ids:[i]});
+        this.cells[i].hp--;if(this.cells[i].hp<=0)this.score+=30;await notify({type:'brush',ids:[i]});
         if(this.cells[i].hp<=0)this.cells[i]=null;const falls=this.gravity();await notify({type:'fall',ids:[],falls});
       }else await this.hit([i],notify);
       await this.settle(notify);return true;
+    }
+    developArea(i){
+      if(!Number.isInteger(i)||i<0||i>=SIZE)return [];
+      const r=Math.floor(i/7),c=i%7;
+      return Array.from({length:SIZE},(_,j)=>j).filter(j=>Math.abs(Math.floor(j/7)-r)<=1&&Math.abs(j%7-c)<=1);
+    }
+    async develop(i,notify=async()=>{}){
+      if(this.level<1||this.developer<6||this.moves<=0||this.won())return false;
+      const ids=this.developArea(i).filter(j=>this.cover[j]>0&&this.cells[j]?.kind!=='box');
+      if(!ids.length)return false;
+      this.developer=0;ids.forEach(j=>this.cover[j]--);this.score+=ids.length*30;
+      await notify({type:'develop',ids});return true;
+    }
+    bonusPlan(){
+      // Cosmetic reward waves never call ordinary settle or generate further rewards.
+      const waves=[];let left=this.moves,k=0;
+      const batch=Math.max(1,Math.ceil(left/5));
+      while(left>0){
+        const count=Math.min(batch,left),lights=[];
+        for(let j=0;j<count;j++){const n=k++;lights.push({i:(n*11+this.level*3)%49,kind:n%2?'col':'row'});}
+        const hits=[...new Set(lights.flatMap(x=>this.line(x.i,x.kind)))];
+        waves.push({lights,hits,steps:count,points:hits.length*10});left-=count;
+      }
+      return waves;
     }
     remaining(){return {cover:this.cover.reduce((a,b)=>a+b,0),boxes:this.cells.filter(x=>x?.kind==='box').length};}
     won(){const r=this.remaining();return !r.cover&&!r.boxes;}

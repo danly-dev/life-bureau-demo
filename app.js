@@ -1,8 +1,8 @@
 (() => {
   'use strict';
   const {Board,LEVELS}=GameEngine,$=s=>document.querySelector(s),app=$('#app'),modal=$('#modal');
-  const STORE='life-bureau-prd-v2',fresh=()=>({version:2,avatar:null,onboarded:false,accepted:false,completed:0,active:null,brushes:0,brushGift:false,episode:null,clue:false,taught:{},ach:{},muted:true,reduced:false});
-  let state=fresh(),board=null,screen='opening',busy=false,selected=-1,brushMode=false,screenToken=0,slide=0,storyReplay=false,routeScroll=0,archiveScroll=0;
+  const STORE='life-bureau-demo-v08',fresh=()=>({version:2,nickname:'新任执行员',title:'初次报到',coins:0,rewards:{},avatar:null,onboarded:false,accepted:false,completed:0,active:null,brushes:0,brushGift:false,episode:null,clue:false,taught:{},ach:{},muted:true,reduced:false});
+  let state=fresh(),board=null,screen='opening',busy=false,selected=-1,brushMode=false,developMode=false,bonusFast=false,screenToken=0,slide=0,storyReplay=false,routeScroll=0,archiveScroll=0;
   try{const saved=JSON.parse(localStorage.getItem(STORE));if(saved?.version===2)state={...state,...saved,taught:saved.taught||{},ach:saved.ach||{}};}catch{}
   state.completed=Math.max(0,Math.min(5,Number(state.completed)||0));state.brushes=Math.max(0,Number(state.brushes)||0);
   if(state.active&&!Board.validSnapshot(state.active)){state.active=null;}
@@ -12,13 +12,21 @@
   state.brushes=Number.isFinite(state.brushes)?Math.floor(state.brushes):0;
   if(state.active?.level>state.completed)state.active=null;
   if(state.episode!==null&&(!Number.isInteger(state.episode)||state.episode<0||state.episode>4))state.episode=null;
-  if(state.avatar&&!['female','male'].includes(state.avatar))state.avatar=null;
+  if(state.avatar&&!['female','male','friend','colleague'].includes(state.avatar))state.avatar=null;
   if(state.ruleVersion!==4){state.taught[2]=false;state.taught[3]=false;state.ruleVersion=4;}
+  state.coins=Number.isSafeInteger(state.coins)&&state.coins>=0?state.coins:0;
+  state.rewards=state.rewards&&typeof state.rewards==='object'&&!Array.isArray(state.rewards)?state.rewards:{};
+  const EXECUTORS=[['female','寻光'],['male','远行'],['friend','拾忆'],['colleague','观澜']];
+  let editingAvatar=false,draftPhoto=null,uploadBusy=false;
+  if(typeof state.avatarPhoto!=='string'||!/^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(state.avatarPhoto)||state.avatarPhoto.length>250000)state.avatarPhoto=null;
+  const escapeText=v=>String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  state.nickname=typeof state.nickname==='string'?state.nickname.slice(0,12):'新任执行员';
   const ICON={back:'m14 5-7 7 7 7',arrow:'M4 12h16m-6-6 6 6-6 6',home:'m3 10 9-7 9 7M5 9v12h5v-7h4v7h5V9',folder:'M3 6h7l2 3h9v11H3ZM3 6V4h7l2 2',book:'M12 5C8 2 3 3 3 3v17s5-1 9 2c4-3 9-2 9-2V3s-5-1-9 2ZM12 5v17',person:'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM4 21v-2a8 8 0 0 1 16 0v2',lock:'M6 10h12v11H6Zm3 0V6a3 3 0 0 1 6 0v4M12 14v3',check:'m4 12 5 5L20 6',pause:'M8 5v14M16 5v14',close:'m6 6 12 12M6 18 18 6',reset:'M4 9a8 8 0 1 1 0 8M4 3v6h6',photo:'M3 4h18v16H3Zm0 12 6-6 5 5 3-3 4 4M16 7h.01',sound:'M3 9h4l5-5v16l-5-5H3Zm13-2c4 3 4 7 0 10'};
   const icon=n=>`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${ICON[n]||ICON.folder}"/></svg>`;
   const image=(name,cls='',alt='')=>`<img class="${cls}" src="assets/${name}.png" alt="${alt}" draggable="false">`;
   const glyph=(n)=>`<span class="art-icon icon-${n}" aria-hidden="true"></span>`;
   const portrait=(who,cls='')=>`<svg class="portrait ${cls}" viewBox="${cls.split(' ').includes('full')?'0 0 530 1536':'530 0 494 510'}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="${({female:'女执行员',male:'男执行员',grandma:'接待奶奶',zhixia:'林知夏',aunt:'林姨',friend:'陈禾',colleague:'周远'})[who]}"><image href="assets/${who}.png" width="1024" height="1536"/></svg>`;
+  const myPortrait=(cls='')=>state.avatarPhoto?`<img class="portrait uploaded-avatar ${cls}" src="${state.avatarPhoto}" alt="我的头像">`:portrait(state.avatar||'female',cls);
   const primary=(action,text,extra='')=>`<button class="primary" data-action="${action}" ${extra}>${text}${icon('arrow')}</button>`;
   function save(){try{localStorage.setItem(STORE,JSON.stringify(state));}catch{toast('当前浏览器无法保存，请保持页面开启。');}}
   let toastTimer;function toast(t){$('#toast').textContent=t;$('#toast').classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').classList.remove('show'),3200);}
@@ -28,10 +36,12 @@
   function close(){modal.close();}
   function show(next){
     if(screen==='route')routeScroll=app.scrollTop;if(screen==='archive')archiveScroll=app.scrollTop;
-    releaseAnimations();screenToken++;screen=next;selected=-1;brushMode=false;busy=false;close();
+    const oldVideo=$('#intro-video');if(oldVideo){oldVideo.pause();oldVideo.removeAttribute('src');oldVideo.load();}
+    releaseAnimations();screenToken++;screen=next;selected=-1;brushMode=false;developMode=false;busy=false;close();
     app.className=`screen-${next}`;app.innerHTML='';app.scrollTop=0;
     const renders={opening,login,avatar,onboarding,home,commission,dossier,archive,route,profile,achievements,game,episode,clue};
     renders[next]();
+    window.BureauMusic?.scene(next);
     document.documentElement.classList.toggle('reduce-motion',state.reduced);
     app.scrollTop=0;
   }
@@ -42,14 +52,91 @@
   }
   function login(){app.innerHTML=`<div class="entry-art"></div><section class="login-body">${image('logo','logo','人生委托局')}<p>走进别人的人生，<br>回应未完成的心愿。</p>${primary('login-go',state.avatar?'继续我的旅程':'以游客身份进入')}<small>进度保存在当前浏览器，无需注册</small></section>`;}
   function avatar(){
-    app.innerHTML=`${top('执行员登记','login')}<div class="page-intro"><p class="eyebrow">选择你的局内身份</p><h2>这一次，由你出发。</h2><p>进入委托后，你将以原主的身份体验人生。</p></div><div class="avatar-choices">${['female','male'].map((who,i)=>`<label class="avatar-choice"><input type="radio" name="avatar" value="${who}" ${i?'':'checked'}>${portrait(who,'full')}<span>${i?'男':'女'}执行员</span></label>`).join('')}</div><div class="page-bottom">${primary('register','确认执行员')}</div>`;
+    draftPhoto=state.avatarPhoto||null;uploadBusy=false;
+    app.innerHTML=`${top('昵称与头像',editingAvatar?'profile':'login')}<div class="page-intro"><h2>怎么称呼你？</h2><p>留个名字，开启你的第一份委托。</p></div><div class="identity-editor"><label class="name-label">昵称（最多12字）<input id="profile-name" maxlength="12" value="${escapeText(state.nickname)}" autocomplete="off"></label><p>选择一个头像</p><div class="profile-avatar-grid">${EXECUTORS.map(([who,name],i)=>`<label><input type="radio" name="avatar" value="${who}" ${!draftPhoto&&(state.avatar?state.avatar===who:i===0)?'checked':''}>${portrait(who)}<span>${name}</span></label>`).join('')}<label id="custom-avatar-choice" ${draftPhoto?'':'hidden'}><input type="radio" name="avatar" value="custom" ${draftPhoto?'checked':''}><img id="custom-avatar-preview" class="portrait uploaded-avatar" ${draftPhoto?`src="${draftPhoto}"`:''} alt="自选头像"><span>自选头像</span></label></div><label class="upload-avatar">上传自己的图片<input id="avatar-file" type="file" accept="image/png,image/jpeg,image/webp"></label><small id="upload-note" role="status">支持 JPG、PNG、WebP，最大10MB；仅保存在本机。</small></div><div class="page-bottom">${primary('register',editingAvatar?'保存资料':'开启我的旅程')}</div>`;
   }
-  const INTRO=['欢迎来到人生委托局。这里收着一些还没有完成的心愿。','你会进入他们的人生，替他们把没能走完的那一段，继续走下去。','先别急着寻找答案。看看她经历过什么，也听听身边的人怎么说。','第一份委托，从一家旧照相馆开始。'];
+  document.addEventListener('change',async e=>{
+    if(e.target.id!=='avatar-file')return;
+    const file=e.target.files?.[0];if(!file)return;
+    if(!['image/jpeg','image/png','image/webp'].includes(file.type)||file.size>10*1024*1024){toast('请选择10MB以内的 JPG、PNG 或 WebP 图片。');e.target.value='';return;}
+    const token=screenToken;uploadBusy=true;
+    const url=URL.createObjectURL(file);
+    try{
+      const img=new Image();img.src=url;await img.decode();
+      if(token!==screenToken)return;
+      const canvas=document.createElement('canvas');canvas.width=canvas.height=256;
+      const context=canvas.getContext('2d'),size=Math.min(img.naturalWidth,img.naturalHeight);
+      context.fillStyle='#e9dfc9';context.fillRect(0,0,256,256);
+      context.drawImage(img,(img.naturalWidth-size)/2,(img.naturalHeight-size)/2,size,size,0,0,256,256);
+      draftPhoto=canvas.toDataURL('image/jpeg',0.85);
+      $('#custom-avatar-preview').src=draftPhoto;$('#custom-avatar-choice').hidden=false;
+      $('[name="avatar"][value="custom"]').checked=true;
+      $('#upload-note').textContent='头像已准备好，保存后生效。';
+    }catch{if(token===screenToken)toast('这张图片无法读取，请换一张试试。');}
+    finally{URL.revokeObjectURL(url);if(token===screenToken)uploadBusy=false;}
+  });
+  let introPart=0,introWaiting=false;
+  const introEnds=[146/24,292/24];
+  const introLines=['开启对话','欢迎来到人生委托局。这里收着一些还没有完成的心愿。','你会进入他们的人生，替他们把没能走完的那一段，继续走下去。'];
+  function holdIntro(){
+    if(introWaiting)return;
+    introWaiting=true;
+    const heldVideo=$('#intro-video');
+    heldVideo.pause();
+    // Seek to the final decoded frame of this scene, never its next scene's first frame.
+    if(introPart<2)heldVideo.currentTime=introEnds[introPart]-0.5/24;
+    $('.cg-dialogue').hidden=introPart===0;
+    $('#cg-open-dialogue').hidden=introPart!==0;
+    $('.cg-speaker').hidden=introPart===0;
+    $('#cg-line').textContent=introLines[introPart];
+    $('#cg-next').hidden=false;
+    $('#cg-next').textContent=introPart===0?'开启对话 ▸':introPart===2?'点击继续 · 接取第一份委托 ▸':'点击继续 ▸';
+    $('#cg-pause').hidden=true;
+    $('#cg-play').hidden=true;
+    $('#cg-status').textContent='';
+  }
+  function nextIntro(){
+    if(!introWaiting)return;
+    if(introPart===2){endIntro();return;}
+    const nextSceneStart=introEnds[introPart];
+    introPart++;introWaiting=false;
+    $('#cg-open-dialogue').hidden=true;
+    $('.cg-dialogue').hidden=false;
+    $('#cg-next').hidden=true;$('#cg-pause').hidden=false;
+    $('#cg-line').textContent=introLines[introPart];
+    $('.cg-speaker').hidden=false;
+    $('#intro-video').currentTime=nextSceneStart;
+    playIntro();
+  }
   function onboarding(){
-    app.innerHTML=`<div class="bureau-art"></div><button class="skip" data-action="intro-skip">跳过介绍</button>${portrait('grandma','intro-character full')}<section class="speech"><span class="eyebrow">接待奶奶 · ${slide+1}/4</span><p>${INTRO[slide]}</p>${primary('intro-next',slide===3?'开始我的第一份委托':'继续')}</section>`;
+    introPart=0;introWaiting=false;
+    const token=screenToken;
+    app.innerHTML=`<div class="cg-backdrop"></div><video id="intro-video" class="intro-video" src="assets/cg/first-commission.mp4" poster="assets/cg/intro-poster.jpg" playsinline webkit-playsinline preload="auto" aria-label="第一份委托：入局、奶奶迎接与递交档案"></video><div class="cg-brand">${image('logo','','人生委托局')}</div><div class="cg-toolbar"><button data-action="intro-video-sound" id="cg-sound">关闭声音</button><button data-action="intro-video-pause" id="cg-pause">暂停</button><button data-action="intro-skip">跳过</button></div><button class="cg-play" data-action="intro-video-play" id="cg-play" hidden>播放开场 CG</button><section class="cg-dialogue" aria-label="奶奶的对话" hidden><div class="cg-speaker">${portrait('grandma')}<strong>接待奶奶</strong></div><p id="cg-line" aria-live="polite">欢迎来到人生委托局。</p><button class="cg-dialogue-note" id="cg-next" data-action="intro-next" hidden>点击继续 ▸</button></section><div class="cg-open-dialogue" id="cg-open-dialogue" hidden>${primary('intro-next','开启对话')}</div><p class="cg-status" id="cg-status" role="status">正在准备影片…</p><div class="cg-ending intro-end" hidden><p>第一份委托已送达</p>${primary('intro-start','开始我的第一份委托')}<button class="text-link" data-action="intro-video-replay">重播 CG</button></div>`;
+    const video=$('#intro-video');video.muted=false;
+    $('.cg-dialogue').hidden=true;
+    const stopAtDialogue=()=>{if(token===screenToken&&!introWaiting&&introPart<2&&video.currentTime>=introEnds[introPart]-1/24)holdIntro();};
+    video.addEventListener('timeupdate',stopAtDialogue);video.addEventListener('seeked',stopAtDialogue);
+    if(video.requestVideoFrameCallback){const watch=()=>{if(token!==screenToken)return;stopAtDialogue();video.requestVideoFrameCallback(watch);};video.requestVideoFrameCallback(watch);}
+    video.addEventListener('ended',()=>{if(token===screenToken)holdIntro();});
+    video.addEventListener('playing',()=>{if(token!==screenToken)return;$('#cg-play').hidden=true;$('#cg-status').textContent='';$('#cg-pause').textContent='暂停';});
+    video.addEventListener('waiting',()=>{if(token===screenToken)$('#cg-status').textContent='影片加载中…';});
+    video.addEventListener('error',()=>{if(token!==screenToken)return;endIntro();$('#cg-status').textContent='影片暂时无法播放，你仍可接取委托。';});
+    playIntro();
+  }
+  function playIntro(){
+    const video=$('#intro-video'),token=screenToken;if(!video||introWaiting)return;
+    const result=video.play();
+    result?.catch(()=>{if(token!==screenToken)return;$('#cg-play').hidden=false;$('#cg-status').textContent='点击播放，开始你的第一份委托。';$('#cg-pause').textContent='播放';});
+  }
+  function endIntro(){
+    screenToken++;
+    const video=$('#intro-video');video?.pause();
+    app.classList.add('cg-finished');
+    $('#cg-open-dialogue').hidden=true;
+    $('.cg-dialogue').hidden=true;$('.intro-end').hidden=false;$('.cg-toolbar').hidden=true;$('#cg-play').hidden=true;$('#cg-status').textContent='';
   }
   function home(){
-    app.innerHTML=`<div class="bureau-art"></div><header class="home-heading">${image('logo','logo','人生委托局')}<button class="avatar-mini" data-action="profile" aria-label="我的执行员">${portrait(state.avatar||'female')}</button></header><aside class="home-side">${[['settings','settings','设置'],['rank','rank','排行榜'],['checkin','checkin','签到'],['achievements','achievement','成就']].map(([a,i,t])=>`<button data-action="${a}">${glyph(i)}<span>${t}</span></button>`).join('')}</aside><div class="grandma">${portrait('grandma','full')}</div><div class="home-cta">${primary('continue',state.accepted?'继续完成委托':'开始完成委托')}<small>${state.completed>=5?'开篇已完成 · 回顾线索':`合照里少了一个人 · 第${(state.active?.level??state.completed)+1}关`}</small></div>${nav('home')}`;
+    app.innerHTML=`<div class="bureau-art"></div><header class="home-heading">${image('logo','logo','人生委托局')}<button class="avatar-mini" data-action="profile" aria-label="我的执行员">${myPortrait()}</button></header><button class="coin-wallet" data-action="wallet">金币 <b>${state.coins}</b></button><aside class="home-side">${[['settings','settings','设置'],['rank','rank','排行榜'],['checkin','checkin','签到'],['achievements','achievement','成就']].map(([a,i,t])=>`<button data-action="${a}">${glyph(i)}<span>${t}</span></button>`).join('')}</aside><div class="grandma">${portrait('grandma','full')}</div><div class="home-cta">${primary('continue',state.accepted?'继续完成委托':'开始完成委托')}<small>${state.completed>=5?'开篇已完成 · 回顾线索':`合照里少了一个人 · 第${(state.active?.level??state.completed)+1}关`}</small></div>${nav('home')}`;
   }
   function commission(){
     app.innerHTML=`${top('当前委托')}<div class="commission-content"><p class="eyebrow">第一段人生 · 旧照相馆</p><article class="commission-card"><div class="commission-cover">${image('cover','','旧照相馆')}</div><div class="commission-copy"><p class="eyebrow">合照里少了一个人</p><h2>久违的照相馆</h2><p>一张泛黄的合照里，<br>好像少了一个本该在场的人……</p><div class="mini-progress">${LEVELS.map((_,i)=>`<span class="${i<state.completed?'done':''}">${i<state.completed?icon('check'):i+1}</span>`).join('')}</div><small>开篇进度 ${state.completed}/5 · 人生委托仍在继续</small>${primary(state.accepted?'continue':'accept',state.accepted?'继续完成委托':'接取委托')}<button class="text-link" data-action="dossier">查看林知夏的资料 ${icon('arrow')}</button></div></article></div>${nav('commission')}`;
@@ -63,15 +150,20 @@
   }
   function route(){
     const current=state.active?.level??Math.min(state.completed,4);
-    app.innerHTML=`<header class="route-poster">${image('poster','','照相馆中的林知夏与身边的人')}<button class="icon-button route-back" data-action="archive" aria-label="返回档案">${icon('back')}</button></header><div class="route-title"><h1>合照里少了一个人</h1><p>${state.completed===5?'开篇已完成':`当前第 ${current+1} 关`}</p></div><ol class="route-list">${LEVELS.map((l,i)=>`<li class="${i<state.completed?'done':''} ${i===current&&state.completed<5?'now':''}"><button class="route-node ${i===current&&state.completed<5?'current':''}" data-action="level" data-level="${i}" aria-label="第${i+1}关 ${l.name}，${i<state.completed?'已通关':i===state.completed?'可挑战':'未解锁'}"><b>${i+1}</b>${i<state.completed?`<span class="node-badge">${icon('check')}</span>`:i>state.completed?`<span class="node-badge">${icon('lock')}</span>`:''}${i===current&&state.completed<5?'<span class="now-label">当前</span>':''}</button><span class="route-label">${l.name}</span>${i===4?`<button class="route-clue" data-action="clue" aria-label="${state.clue?'查看童年照':'第五关线索未获得'}">${image(state.clue?'clue':'back')}<small>${state.clue?'查看线索':'关键线索'}</small></button>`:''}</li>`).join('')}<li class="future-node"><button class="route-node" data-action="future"><b>6</b><span class="node-badge">${icon('lock')}</span></button><span class="route-label">后续待开放</span></li></ol><p class="route-foot">开篇试玩 · 委托仍未结束</p>`;
+    const xs=[134,175,166,143,150,163],ys=[394,466,538,610,682,754];
+    const paths=xs.slice(0,-1).map((x,i)=>`<path class="${i<state.completed?'lit':''} ${i===4?'future-trail':''}" d="M ${x} ${ys[i]+23} C ${x+46} ${ys[i]+53},${xs[i+1]-50} ${ys[i+1]-48},${xs[i+1]} ${ys[i+1]-24}"/>`).join('');
+    app.innerHTML=`${image('route-cinematic','route-cinematic','林知夏与身边的人，旧照相馆合影')}<button class="icon-button cinematic-back" data-action="archive" aria-label="返回档案">${icon('back')}</button><header class="cinematic-heading"><h1>合照里少了一个人</h1><p>${state.completed===5?'开篇已完成':`当前第 <b>${current+1}</b> 关`}</p></header><svg class="cinematic-trail" viewBox="0 0 390 844" aria-hidden="true"><path class="trail-intro" d="M 246 317 C 81 304,73 350,134 370"/>${paths}</svg><ol class="cinematic-levels" aria-label="关卡路线">${[...LEVELS,{name:'后续待开放'}].map((l,i)=>{
+      const done=i<state.completed,now=i===current&&state.completed<5,locked=i===5||i>state.completed;
+      return `<li class="${done?'done':''} ${now?'now':''} ${locked?'locked':''} ${i===5?'future':''}" style="--node-x:${xs[i]}px;--node-y:${ys[i]}px"><button class="cinematic-node" data-action="${i===5?'future':'level'}" ${i<5?`data-level="${i}"`:''} aria-label="第${i+1}关 ${l.name}，${done?'已完成':now?'当前可挑战':'未解锁'}"><b>${i+1}</b>${done?`<span class="cinematic-badge">${icon('check')}</span>`:locked?`<span class="cinematic-badge">${icon('lock')}</span>`:''}</button><span class="cinematic-label">${l.name}</span>${now?'<span class="cinematic-current">当前</span>':''}${i===4?`<button class="cinematic-clue" data-action="clue" aria-label="${state.clue?'查看童年照':'第5关关键线索，尚未获得'}">${image(state.clue?'clue':'back')}<small>${state.clue?'查看线索':'关键线索'}</small></button>`:''}</li>`;
+    }).join('')}</ol><p class="cinematic-foot">开篇试玩<span>委托仍未结束</span></p>`;
   }
   function profile(){
-    app.innerHTML=`${top('我的')}<section class="profile-content">${portrait(state.avatar||'female','profile-face')}<span class="eyebrow">人生委托局 · 执行员</span><h2>欢迎回来</h2><p>每一次认真倾听，都让一段人生更完整。</p><div class="settings-row"><span>开篇进度</span><strong>${state.completed}/5</strong></div><div class="settings-row"><span>执行员形象</span><button data-action="switch-avatar">${state.avatar==='male'?'男':'女'}执行员 · 切换</button></div><div class="settings-row"><span>游戏音效</span><button data-action="sound">${state.muted?'已关闭':'已开启'}</button></div><div class="settings-row"><span>减少动态效果</span><button data-action="motion">${state.reduced?'已开启':'已关闭'}</button></div><button class="settings-row" data-action="achievements"><span>成就</span>${icon('arrow')}</button><button class="settings-row" data-action="clue"><span>已发现的线索</span><strong>${state.clue?'1':'0'} 份</strong></button><p class="footnote">本地游客存档 · 试玩 v0.4 · 2026.10.25</p><button class="text-link danger" data-action="reset">重置本版试玩进度</button></section>${nav('profile')}`;
+    app.innerHTML=`${top('执行员档案')}<div class="agent-sheet"><section class="agent-card"><span class="agent-number">人生委托局 · 执行员 001</span><div class="agent-identity">${myPortrait('agent-face')}<div><h2>${escapeText(state.nickname)}</h2><span class="agent-title">${escapeText(state.title||'初次报到')}</span><button class="text-link" data-action="rename">修改昵称</button></div></div><button class="agent-change" data-action="switch-avatar">修改昵称与头像 ${icon('arrow')}</button></section><div class="agent-stats"><div><b>${state.completed}</b><span>通过关卡</span></div><div><b>0</b><span>完成委托</span></div><div><b>${state.clue?1:0}</b><span>发现线索</span></div></div><button class="agent-collection" data-action="collection">${image(state.clue?'clue':'back')}<div><strong>${state.clue?'最新线索 · 被裁剪的童年照':'你的第一件线索，尚待发现'}</strong><p>${state.clue?'画面外，还有谁？':'完成「久违的照相馆」，收藏人生的片段。'}</p><span>打开线索收藏 ${icon('arrow')}</span></div></button><div class="agent-actions"><button data-action="titles">${glyph('achievement')}<span>成就与称号</span></button><button data-action="wallet"><strong>${state.coins}</strong><span>我的金币</span></button><button data-action="intro-replay">${icon('photo')}<span>重看开场</span></button><button data-action="settings">${glyph('settings')}<span>游戏设置</span></button></div><p class="agent-foot">本次为五关开篇 · 人生委托尚未结束<br>独立试玩存档 · v0.8</p></div>${nav('profile')}`;
   }
   function achievements(){app.innerHTML=`${top('成就')}<section class="achievement-list">${[['swap','第一次整理','完成一次有效三消'],['line','一束补光','首次合成四连补光灯'],['episode','久违的照相馆','完成开篇情节']].map(([k,t,d])=>`<article class="${state.ach[k]?'earned':''}">${glyph('achievement')}<div><h2>${t}</h2><p>${d}</p><small>${state.ach[k]?'已达成':'尚未达成'}</small></div>${state.ach[k]?icon('check'):icon('lock')}</article>`).join('')}</section>`;}
   const LESSONS=[
     '交换相邻棋子，连成三枚即可消除。消除旧纸所在格的棋子，会清掉旧纸；在箱子旁边消除，就能打破箱子。',
-    '旧纸要在原位消除，箱子可以从上下左右邻格消除。两项目标都清零才能通关。',
+    '本关赠送一槽显影液。点显影液，再选一个格子，清除周围3×3区域的旧纸，不消耗步数，不能破箱。之后每次有效交换积累2格，连锁最多额外2格，满6格可再次使用。',
     '把标记棋子向下交换，试试四连。四连生成补光灯。之后与任意相邻棋子交换即可触发：左右交换横扫，上下交换纵扫。拖动时查看预览，也可以留着与其他特效组合。',
     '特效可以保留，等它落到合适位置，或交换相邻特效做组合。赠送一把修复刷：点刷子，再点目标，不花步数。优先清一层遮挡；也能打破箱子或处理棋子。可以留到下一关。',
     '清除照片上的25格遮挡，让童年照逐步显露。完整显现后，就能看看画面里留下了什么。'
@@ -99,7 +191,7 @@
   function target(name,count,label){return `<span class="target" aria-label="${label}剩余${count}">${name==='box'?'<span class="box-art"></span>':image(name)}<b>${count===0?icon('check'):count}</b></span>`;}
   function game(){
     const r=board.remaining();
-    app.innerHTML=`<div class="studio-art"></div><header class="game-header"><div><span class="eyebrow">旧照相馆 · 第${board.level+1}关</span><h1>${board.config.name}</h1></div><button class="icon-button" data-action="pause" aria-label="暂停">${icon('pause')}</button></header><div class="goal-strip"><div id="goals">${target(board.config.photo?'back':'paper',r.cover,board.config.photo?'照片遮挡':'旧纸')}${!board.config.photo?target('box',r.boxes,'箱子'):''}</div><div class="moves" aria-label="剩余步数"><small>剩余步数</small><strong id="moves">${board.moves}</strong></div></div><div class="board-frame"><div id="board" class="${board.config.photo?'photo-board':''}" role="group" aria-label="七行七列三消棋盘"></div></div><p id="game-feedback" class="game-feedback" aria-live="polite">交换相邻棋子，连成三枚</p><footer class="game-tools"><button data-action="brush" id="brush">${image('brush')}<span>修复刷 <b id="brush-count">${board.brushes}</b></span></button><button data-action="hint">${image('hint')}<span>提示</span></button><button data-action="rules">${icon('book')}<span>玩法</span></button></footer>`;
+    app.innerHTML=`<div class="studio-art"></div><header class="game-header"><div><span class="eyebrow">旧照相馆 · 第${board.level+1}关</span><h1>${board.config.name}</h1></div><button class="icon-button" data-action="pause" aria-label="暂停">${icon('pause')}</button></header><div class="goal-strip"><div id="goals">${target(board.config.photo?'back':'paper',r.cover,board.config.photo?'照片遮挡':'旧纸')}${!board.config.photo?target('box',r.boxes,'箱子'):''}</div><div class="moves" aria-label="剩余步数"><small>剩余步数</small><strong id="moves">${board.moves}</strong></div></div><div class="score-strip">本局积分 <b id="score">${board.score}</b><span>通关后结算金币</span></div><div class="board-frame"><div id="board" class="${board.config.photo?'photo-board':''}" role="group" aria-label="七行七列三消棋盘"></div></div><p id="game-feedback" class="game-feedback" aria-live="polite">交换相邻棋子，连成三枚</p><div class="developer-bar"><button data-action="develop" id="develop"><span>显影液</span><span class="developer-meter"><i id="developer-fill"></i></span><b id="developer-count"></b></button><small id="developer-tip"></small></div><footer class="game-tools"><button data-action="brush" id="brush">${image('brush')}<span>修复刷 <b id="brush-count">${board.brushes}</b></span></button><button data-action="hint">${image('hint')}<span>提示</span></button><button data-action="rules">${icon('book')}<span>玩法</span></button></footer>`;
     drawBoard();stats();
   }
   const TILES=['film','photo','clip','camera','stamp'],NAMES=['黄色胶卷','蓝色相片','红色照片夹','青色相机','紫色印章'];
@@ -127,7 +219,9 @@
   function stats(){
     if(!$('#moves'))return;
     const r=board.remaining();$('#goals').innerHTML=target(board.config.photo?'back':'paper',r.cover,board.config.photo?'照片遮挡':'旧纸')+(!board.config.photo?target('box',r.boxes,'箱子'):'');
+    if($('#score'))$('#score').textContent=board.score;
     $('#moves').textContent=board.moves;$('#moves').classList.toggle('low',board.moves<=5);
+    $('#developer-fill').style.width=`${board.developer/6*100}%`;$('#developer-count').textContent=board.level?`${board.developer}/6`:'第2关解锁';$('#develop').disabled=board.level<1||busy;$('#develop').classList.toggle('selected',developMode);$('#developer-tip').textContent=developMode?'点选3×3范围 · 再点按钮取消':board.developer===6?'已蓄满 · 选择何时显影':'有效交换+2 · 连锁最多额外+2';
     $('#brush-count').textContent=board.brushes;$('#brush').classList.toggle('selected',brushMode);
     $('#board').setAttribute('aria-busy',String(busy));
   }
@@ -183,6 +277,7 @@
         ...(e.born||[]).filter(i=>!moving.has(i)).map(i=>motion(tokenEl(i),[{transform:'scale(.3)',opacity:.5},{transform:'scale(1.22)',offset:.65},{transform:'scale(1)',opacity:1}],230))
       ]);
     }
+    if(e.type==='develop'){await Promise.all(e.ids.map(i=>motion($(`[data-cell="${i}"]`),[{boxShadow:'inset 0 0 0 22px #b6e7da',opacity:.6},{boxShadow:'inset 0 0 0 0px #b6e7da',opacity:1}],420)));}
     if(e.type==='brush')await flash(e.ids[0],'burst');
     if(e.type==='reshuffle')toast('没有可用操作，已免费重排。');
   }
@@ -240,7 +335,7 @@
   }
   async function act(fn){
     if(busy||screen!=='game'||modal.open)return;
-    const old=board.snapshot(),token=screenToken;busy=true;selected=-1;brushMode=false;clearPreview();stats();
+    const old=board.snapshot(),token=screenToken;busy=true;selected=-1;brushMode=false;developMode=false;clearPreview();stats();
     try{
       const ok=await fn(e=>notify(e,token));
       if(token!==screenToken)return;
@@ -248,6 +343,11 @@
       else{
         if(board.turns>0)state.ach.swap=true;
         if(board.madeLine)state.ach.line=true;
+        if(board.level===4){
+          const obs=board.observations;
+          if(!obs.length&&!board.cover[24]){obs.push('face');toast('知夏：这是小时候的我……');}
+          else if(!obs.length&&[12,19,26,33,40].some(i=>!board.cover[i])){obs.push('edge');toast('知夏：照片右边，好像被剪掉了一块。');}
+        }
         state.brushes=board.brushes;state.active=board.snapshot();save();
       }
       drawBoard();stats();
@@ -261,12 +361,35 @@
     }
   }
   async function finish(){
-    busy=true;state.completed=Math.max(state.completed,board.level+1);state.brushes=board.brushes;state.active=null;
+    busy=true;
+    const token=screenToken,remaining=board.moves,base=board.score,waves=board.bonusPlan(),bonus=waves.reduce((n,w)=>n+w.points,0),total=base+bonus;bonusFast=state.reduced;
+    const previous=Number.isSafeInteger(state.rewards[board.level])?state.rewards[board.level]:0;
+    const earned=Math.floor(total/100),coins=Math.max(0,earned-previous);
+    state.rewards[board.level]=Math.max(previous,earned);state.coins+=coins;
+    state.completed=Math.max(state.completed,board.level+1);state.brushes=board.brushes;state.active=null;
     if(board.level===4){state.episode=state.clue?state.episode:0;state.clue=true;}
-    save();const token=screenToken;
-    if(board.level===4){$('#board').classList.add('revealed');await delay(900);if(token!==screenToken)return;}
+    save();
+    $('#game-feedback').innerHTML='最后一次冲洗 <button class="bonus-speed" data-action="bonus-fast">点击加速</button>';
+    let used=0,points=base;
+    const original=board.cells.map(x=>({...x}));
+    for(const wave of waves){
+      if(token!==screenToken)return;
+      used+=wave.steps;points+=wave.points;
+      if(!bonusFast){
+        for(const x of wave.lights)board.cells[x.i]={...board.cells[x.i],special:x.kind};
+        drawBoard();$('#moves').textContent=remaining-used;
+        await Promise.all(wave.lights.map(async x=>{const host=$('.board-frame'),fly=document.createElement('img');fly.src='assets/'+x.kind+'.png';fly.className='bonus-traveller';host.appendChild(fly);const tx=10+(x.i%7)*step(),ty=10+Math.floor(x.i/7)*step();try{await motion(fly,[{left:'300px',top:'-60px',opacity:.5,transform:'scale(.5)'},{left:tx+'px',top:ty+'px',opacity:1,transform:'scale(1)'}],170);}finally{fly.remove();}}));
+        await Promise.all(wave.lights.map(x=>motion(tokenEl(x.i),[{transform:'scale(.2)',opacity:.4},{transform:'scale(1.2)',opacity:1},{transform:'scale(1)'}],180)));
+        if(!bonusFast)await Promise.all(wave.lights.map(x=>flash(x.i,x.kind)));
+        if(!bonusFast)await Promise.all(wave.hits.map(i=>motion(tokenEl(i),[{opacity:1,transform:'scale(1)'},{opacity:0,transform:'scale(.3)'}],160)));
+      }
+      board.cells=original.map(x=>({...x}));drawBoard();$('#moves').textContent=remaining-used;$('#score').textContent=points;
+    }
+    if(token!==screenToken)return;
+    if(board.level===4){$('#board').classList.add('revealed');await delay(bonusFast?15:650);}
+    if(token!==screenToken)return;
     busy=false;
-    dialog(`<div class="success-mark">${icon('check')}</div><span class="eyebrow">第${board.level+1}关完成</span><h2>${board.level===4?'照片显现了':'整理完成'}</h2><p>${FEEDBACK[board.level]||'原来这张照片也还留着。'}</p><div class="result-stats">剩余 ${board.moves} 步 · 开篇进度 ${state.completed}/5</div>${primary(board.level===4?'episode-start':'next',board.level===4?'看看这张照片':'继续下一关')}<button class="text-link" data-action="route">返回关卡路线</button>`);
+    dialog(`<div class="success-mark">${icon('check')}</div><h2>${board.level===4?'照片显现了':'整理完成'}</h2><p>${FEEDBACK[board.level]||'原来这张照片也还留着。'}</p><div class="reward-only"><span>金币</span><b>+${coins}</b></div>${primary(board.level===4?'episode-start':'next',board.level===4?'看看这张照片':'继续下一关')}<button class="text-link" data-action="route">返回关卡路线</button>`);
   }
   function failed(){dialog(`<span class="eyebrow">步数用完了</span><h2>还差一点</h2><div class="prepare-goals">${target(board.config.photo?'back':'paper',board.remaining().cover,'剩余遮挡')}${!board.config.photo?target('box',board.remaining().boxes,'剩余箱子'):''}</div><p>试试把消除安排在目标所在格，或组合特效。</p>${primary('retry','重新尝试')}<button class="text-link" data-action="route">返回关卡路线</button>`);}
   const EP=['原来这张照片也还留着。','生日、放学……连这些都收起来了。','等等，右边这里，怎么被剪掉了？','当时站在我旁边的人，是谁？','获得线索：被裁剪的童年照'];
@@ -285,6 +408,7 @@
   }
   function cell(i){
     if(busy||modal.open||screen!=='game')return;
+    if(developMode){act(n=>board.develop(i,n));return;}
     if(brushMode){act(n=>board.brush(i,n));return;}
     if(!board.isTile(i)){toast('在箱子上下左右邻格消除，或使用修复刷。');return;}
     if(selected>=0&&selected!==i&&board.adjacent(selected,i)){const from=selected;act(n=>board.swap(from,i,n));return;}
@@ -294,7 +418,7 @@
     if(board.cells[i].special==='color')$('#game-feedback').textContent='全色底片：与相邻棋子交换，消除全部同色棋子。';
   }
   let drag=null,suppressUntil=0;
-  function clearPreview(){document.querySelectorAll('.preview-hit,.preview-valid,.preview-invalid').forEach(el=>el.classList.remove('preview-hit','preview-valid','preview-invalid'));}
+  function clearPreview(){document.querySelectorAll('.preview-hit,.preview-valid,.preview-invalid,.develop-preview').forEach(el=>el.classList.remove('preview-hit','preview-valid','preview-invalid','develop-preview'));}
   function preview(a,b){
     clearPreview();const p=board.preview(a,b);
     [a,b].forEach(i=>$(`[data-cell="${i}"]`)?.classList.add(p.valid?'preview-valid':'preview-invalid'));
@@ -303,12 +427,12 @@
     $('#game-feedback').textContent=p.combo?'松手组合这两个特效':p.lights.length?`松手后${p.lights[0].direction==='row'?'横向':'纵向'}扫光`:p.trigger?'松手触发特效':'松手完成交换';
   }
   app.addEventListener('pointerdown',e=>{const el=e.target.closest('[data-cell]');if(el&&!busy&&!modal.open&&e.isPrimary!==false){drag={id:+el.dataset.cell,x:e.clientX,y:e.clientY,pointerId:e.pointerId};el.setPointerCapture(e.pointerId);}});
-  app.addEventListener('pointermove',e=>{if(!drag||drag.pointerId!==e.pointerId||busy||brushMode)return;const dx=e.clientX-drag.x,dy=e.clientY-drag.y;if(Math.max(Math.abs(dx),Math.abs(dy))<14){clearPreview();return;}const b=drag.id+(Math.abs(dx)>Math.abs(dy)?dx>0?1:-1:dy>0?7:-7);if(board.adjacent(drag.id,b))preview(drag.id,b);else clearPreview();});
+  app.addEventListener('pointermove',e=>{if(developMode&&!busy){clearPreview();const target=e.target.closest('[data-cell]');if(target)board.developArea(+target.dataset.cell).forEach(i=>$(`[data-cell="${i}"]`)?.classList.add('develop-preview'));return;}if(!drag||drag.pointerId!==e.pointerId||busy||brushMode||developMode)return;const dx=e.clientX-drag.x,dy=e.clientY-drag.y;if(Math.max(Math.abs(dx),Math.abs(dy))<14){clearPreview();return;}const b=drag.id+(Math.abs(dx)>Math.abs(dy)?dx>0?1:-1:dy>0?7:-7);if(board.adjacent(drag.id,b))preview(drag.id,b);else clearPreview();});
   app.addEventListener('pointerup',e=>{
     if(!drag||drag.pointerId!==e.pointerId)return;const d=drag;drag=null;clearPreview();
     const dx=e.clientX-d.x,dy=e.clientY-d.y;if(Math.max(Math.abs(dx),Math.abs(dy))<18)return;
     suppressUntil=Date.now()+350;
-    if(brushMode)return;
+    if(brushMode||developMode)return;
     const b=d.id+(Math.abs(dx)>Math.abs(dy)?dx>0?1:-1:dy>0?7:-7);
     if(board?.adjacent(d.id,b))act(n=>board.swap(d.id,b,n));
   });
@@ -323,14 +447,22 @@
   });
   document.addEventListener('click',e=>{
     const cellEl=e.target.closest('[data-cell]');if(cellEl){if(Date.now()>suppressUntil)cell(+cellEl.dataset.cell);return;}
-    const el=e.target.closest('[data-action]');if(!el||el.disabled||busy)return;
+    const el=e.target.closest('[data-action]');if(el?.dataset.action==='bonus-fast'){bonusFast=true;el.textContent='正在结算…';return;}if(!el||el.disabled||busy)return;
     const a=el.dataset.action;
     if(['home','commission','archive','profile','route','dossier','login','achievements'].includes(a)){show(a);return;}
     switch(a){
-      case 'login-go':if(!state.avatar)show('avatar');else if(!state.onboarded){slide=0;show('onboarding');}else show('home');break;
-      case 'register':state.avatar=$('[name="avatar"]:checked').value;save();slide=0;show('onboarding');break;
-      case 'intro-next':if(slide<3){slide++;show('onboarding');}else{state.onboarded=true;save();show('home');}break;
-      case 'intro-skip':state.onboarded=true;save();show('home');break;
+      case 'login-go':requestFullscreen();editingAvatar=false;if(!state.avatar)show('avatar');else if(!state.onboarded){slide=0;show('onboarding');}else show('home');break;
+      case 'register':{if(uploadBusy){toast('头像正在处理，请稍候。');break;}const name=$('#profile-name').value.trim();if(!name){toast('请填写昵称。');$('#profile-name').focus();break;}const chosen=$('[name="avatar"]:checked')?.value||'female';state.nickname=name.slice(0,12);state.avatar=chosen==='custom'?(state.avatar||'female'):chosen;state.avatarPhoto=chosen==='custom'?draftPhoto:null;save();show(editingAvatar?'profile':'onboarding');editingAvatar=false;break;}
+      case 'intro-next':nextIntro();break;
+      case 'intro-skip':endIntro();break;
+      case 'intro-video-play':playIntro();break;
+      case 'intro-video-sound':{const v=$('#intro-video');v.muted=!v.muted;el.textContent=v.muted?'开启声音':'关闭声音';break;}
+      case 'intro-video-pause':{const v=$('#intro-video');if(v.paused)playIntro();else{v.pause();el.textContent='播放';}break;}
+      case 'intro-video-replay':show('onboarding');break;
+      case 'intro-start':state.onboarded=true;save();show('commission');break;
+      case 'intro-replay':show('onboarding');break;
+      case 'fullscreen':requestFullscreen(true);break;
+      case 'wallet':dialog(`<h2>我的金币 · ${state.coins}</h2><p>每枚消除棋子 10 分，每格旧纸或箱子 30 分。通关后剩余步数会变为补光灯，奖励消除每格10分。</p><p>每 100 分兑换 1 金币，不足部分舍去；未通关不发放金币。重玩只补发超过该关历史奖励的差额。</p><p>金币保存在本机。消费功能暂未开放。</p>${primary('close','知道了')}`);break;
       case 'accept':state.accepted=true;save();prepare(state.active?.level??Math.min(state.completed,4));break;
       case 'continue':continueStory();break;
       case 'level':prepare(+el.dataset.level);break;
@@ -338,12 +470,13 @@
       case 'next':prepare(Math.min(board.level+1,4));break;
       case 'lesson':state.taught[board.level]=true;save();close();if(board.level===2&&board.turns===0){[9,16].forEach(i=>$(`[data-cell="${i}"]`)?.classList.add('hinted'));$('#game-feedback').textContent='将标记棋子向下交换，合成四连补光灯。';}else if(board.level===0)hint();break;
       case 'close':close();break;
-      case 'pause':brushMode=false;selected=-1;drawBoard();stats();dialog(`<h2>稍作停留</h2><p>棋盘与步数已保存。</p>${primary('close','继续整理')}<button class="secondary" data-action="retry-confirm">重开本关</button><button class="secondary" data-action="sound">音效：${state.muted?'关闭':'开启'}</button><button class="text-link" data-action="route">返回关卡路线</button>`);break;
+      case 'pause':brushMode=false;selected=-1;drawBoard();stats();dialog(`<h2>稍作停留</h2><p>棋盘与步数已保存。</p>${primary('close','继续整理')}<button class="secondary" data-action="retry-confirm">重开本关</button><button class="secondary" data-action="music">背景音乐：${window.BureauMusic?.enabled?'开启':'关闭'}</button><button class="secondary" data-action="sound">音效：${state.muted?'关闭':'开启'}</button><button class="text-link" data-action="route">返回关卡路线</button>`);break;
       case 'retry-confirm':dialog(`<h2>重新开始这一关？</h2><p>棋盘和步数重置，道具恢复到这局开始时的数量。</p>${primary('retry','重新开始')}<button class="text-link" data-action="close">继续当前关卡</button>`);break;
       case 'retry':{const l=board.level;state.brushes=board.startBrushes;state.active=null;save();start(l);break;}
-      case 'brush':if(!board.brushes){toast('修复刷已用完，仍可通过消除完成目标。');break;}brushMode=!brushMode;selected=-1;drawBoard();stats();$('#game-feedback').textContent=brushMode?'点一个目标：清一层遮挡／破箱／处理棋子。不扣步数。':'已取消使用修复刷';break;
+      case 'develop':if(board.developer<6){toast('显影液尚未蓄满：有效交换可积累，连锁有额外积累。');break;}developMode=!developMode;brushMode=false;selected=-1;drawBoard();stats();break;
+      case 'brush':developMode=false;if(!board.brushes){toast('修复刷已用完，仍可通过消除完成目标。');break;}brushMode=!brushMode;selected=-1;drawBoard();stats();$('#game-feedback').textContent=brushMode?'点一个目标：清一层遮挡／破箱／处理棋子。不扣步数。':'已取消使用修复刷';break;
       case 'hint':hint();break;
-      case 'rules':dialog(`<h2>整理小贴士</h2><div class="rules"><p>三连：清除棋子及本格一层覆盖物，同时伤害相邻箱子。</p><p>四连：补光灯，清一行或一列。T/L：范围闪光灯。五连：全色底片，与棋子交换后消除全盘同色。</p><p>单击特效只选中，与相邻可交换棋子交换即可触发，无需凑三连；相邻特效交换可组合。同色匹配和特效命中也能触发。补光灯按主动交换方向转向，连锁引爆保留原方向。合法交换扣1步，连锁不额外扣步。</p><p>修复刷不扣步数，优先清覆盖物；没有覆盖物时破箱、移除棋子或激活特效。</p></div>${primary('close','继续整理')}`);break;
+      case 'rules':dialog(`<h2>整理小贴士</h2><div class="rules"><p>三连：清除棋子及本格一层覆盖物，同时伤害相邻箱子。</p><p>四连：补光灯，清一行或一列。T/L：范围闪光灯。五连：全色底片，与棋子交换后消除全盘同色。</p><p>单击特效只选中，与相邻可交换棋子交换即可触发，无需凑三连；相邻特效交换可组合。同色匹配和特效命中也能触发。补光灯按主动交换方向转向，连锁引爆保留原方向。合法交换扣1步，连锁不额外扣步。</p><p>修复刷不扣步数，优先清覆盖物；没有覆盖物时破箱、移除棋子或激活特效。</p><p>棋子每枚10分，覆盖物或箱子每格30分。显影液满6格，可清除选中位置周围3×3范围旧纸，不破箱、不扣步。通关余步变为补光灯，奖励消除每格10分；每100分兑换1金币，重玩只补历史差额。</p></div>${primary('close','继续整理')}`);break;
       case 'episode-start':storyReplay=state.episode===null;slide=0;show('episode');break;
       case 'ep-replay':storyReplay=true;slide=0;show('episode');break;
       case 'ep-next':if((storyReplay?slide:state.episode)<4){if(storyReplay)slide++;else{state.episode++;save();}show('episode');}else endEpisode();break;
@@ -353,11 +486,17 @@
       case 'rank':dialog(`<h2>排行榜</h2><p>排行榜尚未接入。本次试玩进度仅保存在当前设备。</p>${primary('close','知道了')}`);break;
       case 'checkin':dialog(`<h2>每日签到</h2><p>签到系统将在后续版本开放。本次试玩可直接体验五关。</p>${primary('close','知道了')}`);break;
       case 'relation':{const text={aunt:['林姨／林素','抚养知夏的人，目前住院。'],friend:['陈禾','知夏的童年好友，协助交接照相馆钥匙。'],colleague:['周远','知夏的工作同事。更多关系有待了解。']}[el.dataset.id];dialog(`<h2>${text[0]}</h2><p>${text[1]}</p>${primary('close','知道了')}`);break;}
-      case 'switch-avatar':state.avatar=state.avatar==='male'?'female':'male';save();show('profile');break;
+      case 'switch-avatar':editingAvatar=true;show('avatar');break;
+      case 'music':window.BureauMusic?.toggle();el.textContent='背景音乐：'+(window.BureauMusic?.enabled?'开启':'关闭');break;
       case 'sound':state.muted=!state.muted;save();if(screen==='profile')show('profile');else{el.textContent=`音效：${state.muted?'关闭':'开启'}`;}break;
       case 'motion':state.reduced=!state.reduced;save();document.documentElement.classList.toggle('reduce-motion',state.reduced);if(screen==='profile')show('profile');else el.textContent=`减少动态：${state.reduced?'开启':'关闭'}`;break;
-      case 'settings':dialog(`<span class="eyebrow">人生委托局</span><h2>设置</h2><button class="secondary" data-action="sound">音效：${state.muted?'关闭':'开启'}</button><button class="secondary" data-action="motion">减少动态：${state.reduced?'开启':'关闭'}</button><p class="settings-note">进度自动保存在当前浏览器</p>${primary('close','返回游戏')}`);break;
-      case 'reset':dialog(`<h2>重置本版进度？</h2><p>会清除本版的关卡、线索、道具和执行员选择，旧版存档不受影响。</p><button class="secondary" data-action="close">保留进度</button><button class="text-link danger" data-action="reset-confirm">确认重置</button>`);break;
+      case 'rename':dialog(`<h2>你的执行员名字</h2><label class="name-label">昵称（最多12字）<input id="agent-name" maxlength="12" value="${escapeText(state.nickname)}" autocomplete="off"></label>${primary('save-name','保存昵称')}`);break;
+      case 'save-name':{const name=$('#agent-name').value.trim();if(!name){toast('请输入一个名字。');break;}state.nickname=name.slice(0,12);save();show('profile');break;}
+      case 'collection':if(state.clue)show('clue');else dialog(`<h2>线索收藏</h2><p>还没有收录线索。完成第5关，找到你的第一张人生照片。</p>${primary('route','查看关卡路线')}`);break;
+      case 'titles':dialog(`<h2>成就与称号</h2>${[['初次报到',true,'加入人生委托局'],['旧物整理员',state.ach.swap,'完成一次有效交换'],['追光者',state.ach.line,'合成四连补光灯'],['记忆收藏家',state.ach.episode,'完成开篇情节']].map(([name,unlocked,desc])=>`<button class="title-choice" data-action="equip-title" data-title="${name}" ${unlocked?'':'disabled'}><span>${name}<small>${desc}</small></span><b>${state.title===name?'已佩戴':unlocked?'佩戴':'未解锁'}</b></button>`).join('')}${primary('close','返回')}`);break;
+      case 'equip-title':{const name=el.dataset.title;if(!({'初次报到':true,'旧物整理员':state.ach.swap,'追光者':state.ach.line,'记忆收藏家':state.ach.episode})[name])break;state.title=name;save();show('profile');break;}
+      case 'settings':dialog(`<span class="eyebrow">人生委托局</span><h2>设置</h2><button class="secondary" data-action="music">背景音乐：${window.BureauMusic?.enabled?'开启':'关闭'}</button><button class="secondary" data-action="sound">音效：${state.muted?'关闭':'开启'}</button><button class="secondary" data-action="motion">减少动态：${state.reduced?'开启':'关闭'}</button><button class="secondary" data-action="fullscreen">全屏显示</button><p class="settings-note">背景音乐：Kevin MacLeod<br>Dream Culture / Local Forecast - Elevator<br><a href="assets/music/CREDITS.txt" target="_blank" rel="noopener">音乐署名与授权 · CC BY 4.0</a></p><button class="text-link danger" data-action="reset">重置新版试玩进度</button>${primary('close','返回游戏')}`);break;
+      case 'reset':dialog(`<h2>重置本版进度？</h2><p>会清除本版的关卡、线索、道具、金币和执行员选择，旧版存档不受影响。</p><button class="secondary" data-action="close">保留进度</button><button class="text-link danger" data-action="reset-confirm">确认重置</button>`);break;
       case 'reset-confirm':state=fresh();board=null;save();show('login');break;
     }
   });
@@ -371,10 +510,19 @@
   }
   function endEpisode(){if(!storyReplay){state.episode=null;state.ach.episode=true;save();}show('clue');}
   modal.addEventListener('cancel',e=>{if(screen==='game'&&(board.won()||board.moves<=0)){e.preventDefault();show('route');}});
+  async function requestFullscreen(explicit=false){
+    if(document.fullscreenElement)return;
+    try{
+      if(document.documentElement.requestFullscreen)await document.documentElement.requestFullscreen();
+      else if(explicit)toast('此浏览器不支持网页全屏。iPhone 可在 Safari 分享菜单中添加到主屏幕后打开。');
+    }catch{if(explicit)toast('浏览器未允许全屏；可以通过浏览器菜单添加到主屏幕。');}
+    fitViewport();
+  }
+  document.addEventListener('fullscreenchange',()=>fitViewport());
   // 以390×844为逻辑画布，按可用屏幕等比例适配，避免纵向滚动和人物变形。
   const frame=document.createElement('div');frame.id='device-frame';app.before(frame);frame.appendChild(app);
   function fitViewport(){
-    const vv=window.visualViewport,w=vv?.width||innerWidth,h=vv?.height||innerHeight;
+    const vv=window.visualViewport,bodyStyle=getComputedStyle(document.body),w=(vv?.width||innerWidth)-(parseFloat(bodyStyle.paddingLeft)||0)-(parseFloat(bodyStyle.paddingRight)||0),h=(vv?.height||innerHeight)-(parseFloat(bodyStyle.paddingTop)||0)-(parseFloat(bodyStyle.paddingBottom)||0);
     const gutter=w>480?24:0,scale=Math.min((w-gutter)/390,(h-gutter)/844,1.2);
     document.documentElement.style.setProperty('--ui-scale',scale);
     frame.style.width=`${390*scale}px`;frame.style.height=`${844*scale}px`;
@@ -386,6 +534,8 @@
   for(const name of [...TILES,'paper','boxes','row','col','burst','color','clue']){const img=new Image();img.src=`assets/${name}.png`;if(img.decode)img.decode().catch(()=>{});}
   show('opening');
 })();
+
+
 
 
 
