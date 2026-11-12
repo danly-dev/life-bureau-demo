@@ -6,3 +6,4 @@ Licensed under Creative Commons: By Attribution 4.0
 https://creativecommons.org/licenses/by/4.0/
 Original audio files; playback volume reduced, looped, and faded in the game.
 Matched versions: loudness normalized to the CG reference (-13.88 LUFS); playback fades applied.
+story-memory.wav: original synthesized instrumental sketch created for this demo, 32-second loop.
